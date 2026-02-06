@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>极简基金实时收益监控</title>
+    <style>
+        :root {
+            --red: #ff4d4f;
+            --green: #52c41a;
+            --bg: #f5f7fa;
+        }
+        body { font-family: -apple-system, sans-serif; background: var(--bg); padding: 20px; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        h2 { margin-top: 0; font-size: 1.2rem; }
+        
+        /* 输入区域 */
+        .input-group { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; margin-bottom: 20px; }
+        input { padding: 10px; border: 1px solid #ddd; border-radius: 6px; outline: none; }
+        button { padding: 10px 15px; background: #1890ff; color: white; border: none; border-radius: 6px; cursor: pointer; }
+        
+        /* 列表展示 */
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; color: #888; font-size: 0.9rem; padding: 10px 5px; border-bottom: 1px solid #eee; }
+        td { padding: 15px 5px; border-bottom: 1px solid #eee; font-weight: 500; }
+        
+        .up { color: var(--red); }
+        .down { color: var(--green); }
+        .delete-btn { color: #ccc; cursor: pointer; border: none; background: none; }
+        .total-bar { font-size: 1.1rem; font-weight: bold; display: flex; justify-content: space-between; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="card">
+        <h2>添加基金</h2>
+        <div class="input-group">
+            <input type="text" id="fundCode" placeholder="代码 (如: 000001)">
+            <input type="number" id="fundAmount" placeholder="持有金额 (元)">
+            <button onclick="addFund()">添加</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2>实时监控 (每 60s 刷新)</h2>
+            <button onclick="refreshData()" style="background:none; color:#1890ff; padding:0;">手动刷新</button>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>基金名称</th>
+                    <th>估值涨幅</th>
+                    <th>实时收益</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="fundList">
+                </tbody>
+        </table>
+        <hr style="border:none; border-top:1px solid #eee; margin: 20px 0;">
+        <div class="total-bar" id="totalBar">
+            <span>今日总收益预估:</span>
+            <span id="totalProfit">￥ 0.00</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    let myFunds = JSON.parse(localStorage.getItem('myFunds')) || [];
+
+    function addFund() {
+        const code = document.getElementById('fundCode').value.trim();
+        const amount = parseFloat(document.getElementById('fundAmount').value);
+        if (code && amount) {
+            myFunds.push({ code, amount });
+            saveAndRefresh();
+            document.getElementById('fundCode').value = '';
+            document.getElementById('fundAmount').value = '';
+        }
+    }
+
+    function removeFund(index) {
+        myFunds.splice(index, 1);
+        saveAndRefresh();
+    }
+
+    function saveAndRefresh() {
+        localStorage.setItem('myFunds', JSON.stringify(myFunds));
+        refreshData();
+    }
+
+    async function refreshData() {
+        const listBody = document.getElementById('fundList');
+        const totalProfitEl = document.getElementById('totalProfit');
+        listBody.innerHTML = '';
+        let totalProfit = 0;
+
+        for (let i = 0; i < myFunds.length; i++) {
+            const fund = myFunds[i];
+            try {
+                // 使用 JSONP 处理天天基金跨域接口
+                const res = await fetchJsonp(`https://fundgz.1234567.com.cn/js/${fund.code}.js?rt=${Date.now()}`);
+                const profit = fund.amount * (res.gszzl / 100);
+                totalProfit += profit;
+
+                const row = document.createElement('tr');
+                const colorClass = res.gszzl >= 0 ? 'up' : 'down';
+                const prefix = res.gszzl >= 0 ? '+' : '';
+
+                row.innerHTML = `
+                    <td>${res.name}<br><small style="color:#999">${fund.code}</small></td>
+                    <td class="${colorClass}">${prefix}${res.gszzl}%</td>
+                    <td class="${colorClass}">${prefix}${profit.toFixed(2)}</td>
+                    <td><button class="delete-btn" onclick="removeFund(${i})">✕</button></td>
+                `;
+                listBody.appendChild(row);
+            } catch (e) {
+                console.error('获取失败', fund.code);
+            }
+        }
+        
+        totalProfitEl.innerText = `￥ ${totalProfit.toFixed(2)}`;
+        totalProfitEl.className = totalProfit >= 0 ? 'up' : 'down';
+    }
+
+    // 简易 JSONP 实现，绕过跨域限制
+    function fetchJsonp(url) {
+        return new Promise((resolve) => {
+            const script = document.createElement('script');
+            const callbackName = 'jsonpgz'; 
+            window[callbackName] = (data) => {
+                resolve(data);
+                document.body.removeChild(script);
+            };
+            script.src = url;
+            document.body.appendChild(script);
+        });
+    }
+
+    // 初始化运行
+    refreshData();
+    // 自动刷新逻辑
+    setInterval(refreshData, 60000);
+</script>
+
+</body>
+</html>
